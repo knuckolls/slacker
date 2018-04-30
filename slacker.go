@@ -91,13 +91,16 @@ func (s *Slacker) Listen() error {
 			go s.initHandler()
 
 		case *slack.MessageEvent:
-			if s.isFromBot(event) {
+			/*if s.isFromBot(event) {
+				fmt.Printf("dropping from bot: %#v\n", event)
 				continue
-			}
+			}*/
 
 			if !s.isBotMentioned(event) && !s.isDirectMessage(event) {
+				fmt.Printf("dropping not mentioned or not direct message: %#v\n", event)
 				continue
 			}
+			fmt.Printf("handling message: %#v\n", event)
 			go s.handleMessage(event)
 
 		case *slack.RTMError:
@@ -130,7 +133,7 @@ func (s *Slacker) isFromBot(event *slack.MessageEvent) bool {
 
 func (s *Slacker) isBotMentioned(event *slack.MessageEvent) bool {
 	info := s.RTM.GetInfo()
-	return strings.Contains(event.Text, fmt.Sprintf(userMentionFormat, info.User.ID))
+	return strings.Contains(event.Text, fmt.Sprintf(userMentionFormat, info.User.ID)) || strings.Contains(event.Attachments[0].Pretext, fmt.Sprintf(userMentionFormat, info.User.ID))
 }
 
 func (s *Slacker) isDirectMessage(event *slack.MessageEvent) bool {
@@ -142,12 +145,16 @@ func (s *Slacker) handleMessage(event *slack.MessageEvent) {
 	ctx := context.Background()
 
 	for _, cmd := range s.botCommands {
-		parameters, isMatch := cmd.Match(event.Text)
-		if !isMatch {
+		textParameters, isTextMatch := cmd.Match(event.Text)
+		attachmentParameters, isAttachmentMatch := cmd.Match(event.Attachments[0].Pretext)
+		if isTextMatch {
+			cmd.Execute(NewRequest(ctx, event, textParameters), response)
+		} else if isAttachmentMatch {
+			cmd.Execute(NewRequest(ctx, event, attachmentParameters), response)
+		} else {
 			continue
 		}
 
-		cmd.Execute(NewRequest(ctx, event, parameters), response)
 		return
 
 	}
